@@ -1,16 +1,41 @@
-# client
+# Testbed Application
 
-A new Flutter project.
+This application is intended as a tool for developing and testing
+the [desktop
+libraries](https://github.com/flutter/flutter/wiki/Desktop-shells), as well
+as the plugins that are part of this repository.
 
-## Getting Started
+This application is only likely to be useful if:
+* you are working on the Flutter desktop libraries themselves, and want to test
+  something,
+* you are porting one of this repository's plugins to a new platform, or
+* you are looking for an example of how to use plugins on Windows or Linux
+  before the `flutter` tooling for plugins is available on those platforms.
 
-This project is a starting point for a Flutter application.
+Otherwise, you probably want the [example](../example/) instead.
 
-A few resources to get you started if this is your first Flutter project:
+Since it serves as simple test environment for the plugins that are part of
+this project, and some desktop-specific Flutter functionality, it is a
+collection of unrelated functionality rather than a usable application.
 
-- [Lab: Write your first Flutter app](https://flutter.dev/docs/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://flutter.dev/docs/cookbook)
+## Setting Up
 
-For help getting started with Flutter, view our
-[online documentation](https://flutter.dev/docs), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+This application uses all of the plugins in this repository, so make sure you
+have all the dependencies for
+[building the plugins on your platform](../plugins/README.md).
+
+### Linux
+
+You will also need the X11 headers. For debian-based systems:
+```
+$ sudo apt-get install libx11-dev
+```
+
+## Building and Running
+
+Just `flutter run`, as with `example`.
+
+During `testbed` development it may be useful to run the native build directly
+(e.g., building from within Visual Studio). The first build needs to be done
+via the `flutter` tool, but after that building the native project directly
+works as well.
