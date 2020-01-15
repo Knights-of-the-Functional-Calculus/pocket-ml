@@ -13,23 +13,24 @@
 # limitations under the License.
 
 # Executable name.
-BINARY_NAME=testbed
+BINARY_NAME=pocket_ml
 # Any extra source files to build.
 EXTRA_SOURCES=
 # Paths of any additional libraries to be bundled in the output directory.
 EXTRA_BUNDLED_LIBRARIES=
 # Extra flags (e.g., for library dependencies).
-SYSTEM_LIBRARIES=gtk+-3.0 x11
+SYSTEM_LIBRARIES=gtk+-3.0 x11 libavformat libavcodec libavutil libavfilter
 EXTRA_CXXFLAGS=
 EXTRA_CPPFLAGS=
 EXTRA_LDFLAGS=
 
 # The location of the flutter-desktop-embedding repository.
-FDE_ROOT=$(CURDIR)/../..
+FDE_ROOT=$(FLUTTER_STUFF)/flutter-desktop-embedding
 # Plugins to include from the flutter-desktop-embedding plugins/ directory.
 PLUGIN_NAMES=video_player
 # Additional plugins to include from the plugins/flutter_plugins subdirectory.
 # Do not include the _fde suffix.
+FLUTTER_PLUGIN_NAMES=
 
 # Default build type. For a release build, set BUILD=release.
 # Currently this only sets NDEBUG, which is used to control the flags passed
@@ -150,7 +151,7 @@ $(WRAPPER_SOURCES) $(FLUTTER_LIB) $(ICU_DATA_SOURCE) $(FLUTTER_ASSETS_SOURCE) \
 	$(PLUGIN_NAMES) $(FLUTTER_PLUGIN_NAMES): | sync
 
 # Implicit rules won't match phony targets, so list plugin builds explicitly.
-$(OUT_DIR)/libvideo_player_plugin.so: | video_player_plugin
+$(OUT_DIR)/libvideo_player_plugin.so: | video_player
 
 # Compilation depends on plugin headers that are copied as part of the
 # plugin builds, so ensure those happen first.

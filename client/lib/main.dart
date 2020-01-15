@@ -1,411 +1,520 @@
-// Copyright 2018 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-import 'dart:async';
-import 'dart:io' show Platform;
-import 'dart:math' as math;
+// Copyright 2017 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
+// ignore_for_file: public_member_api_docs
+
+/// An example of using the plugin, controlling lifecycle and playback of the
+/// video.
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:video_player/video_player.dart';
+import 'package:flutter/scheduler.dart';
 
-import 'package:color_panel/color_panel.dart';
-import 'package:example_flutter/keyboard_test_page.dart';
-import 'package:example_plugin/example_plugin.dart' as example_plugin;
-import 'package:file_chooser/file_chooser.dart' as file_chooser;
-import 'package:menubar/menubar.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart' as url_launcher;
-import 'package:window_size/window_size.dart' as window_size;
+/// Controls play and pause of [controller].
+///
+/// Toggles play/pause on tap (accompanied by a fading status icon).
+///
+/// Plays (looping) on initialization, and mutes on deactivation.
+class VideoPlayPause extends StatefulWidget {
+  VideoPlayPause(this.controller);
 
-// The shared_preferences key for the testbed's color.
-const _prefKeyColor = 'color';
+  final VideoPlayerController controller;
+
+  @override
+  State createState() {
+    return _VideoPlayPauseState();
+  }
+}
+
+class _VideoPlayPauseState extends State<VideoPlayPause> {
+  _VideoPlayPauseState() {
+    listener = () {
+      SchedulerBinding.instance.addPostFrameCallback((_) => setState(() {}));
+    };
+  }
+
+  FadeAnimation imageFadeAnim =
+      FadeAnimation(child: const Icon(Icons.play_arrow, size: 100.0));
+  VoidCallback listener;
+
+  VideoPlayerController get controller => widget.controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller.addListener(listener);
+    controller.setVolume(1.0);
+    controller.play();
+  }
+
+  @override
+  void deactivate() {
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      controller.setVolume(0.0);
+      controller.removeListener(listener);
+    });
+
+    super.deactivate();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final List<Widget> children = <Widget>[
+      GestureDetector(
+        child: VideoPlayer(controller),
+        onTap: () {
+          if (!controller.value.initialized) {
+            return;
+          }
+          if (controller.value.isPlaying) {
+            imageFadeAnim =
+                FadeAnimation(child: const Icon(Icons.pause, size: 100.0));
+            controller.pause();
+          } else {
+            imageFadeAnim =
+                FadeAnimation(child: const Icon(Icons.play_arrow, size: 100.0));
+            controller.play();
+          }
+        },
+      ),
+      Align(
+        alignment: Alignment.bottomCenter,
+        child: VideoProgressIndicator(
+          controller,
+          allowScrubbing: true,
+        ),
+      ),
+      Center(child: imageFadeAnim),
+      Center(
+          child: controller.value.isBuffering
+              ? const CircularProgressIndicator()
+              : null),
+    ];
+
+    return Stack(
+      fit: StackFit.passthrough,
+      children: children,
+    );
+  }
+}
+
+class FadeAnimation extends StatefulWidget {
+  FadeAnimation(
+      {this.child, this.duration = const Duration(milliseconds: 500)});
+
+  final Widget child;
+  final Duration duration;
+
+  @override
+  _FadeAnimationState createState() => _FadeAnimationState();
+}
+
+class _FadeAnimationState extends State<FadeAnimation>
+    with SingleTickerProviderStateMixin {
+  AnimationController animationController;
+
+  @override
+  void initState() {
+    super.initState();
+    animationController =
+        AnimationController(duration: widget.duration, vsync: this);
+    animationController.addListener(() {
+      if (mounted) {
+        setState(() {});
+      }
+    });
+    animationController.forward(from: 0.0);
+  }
+
+  @override
+  void deactivate() {
+    animationController.stop();
+    super.deactivate();
+  }
+
+  @override
+  void didUpdateWidget(FadeAnimation oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.child != widget.child) {
+      animationController.forward(from: 0.0);
+    }
+  }
+
+  @override
+  void dispose() {
+    animationController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return animationController.isAnimating
+        ? Opacity(
+            opacity: 1.0 - animationController.value,
+            child: widget.child,
+          )
+        : Container();
+  }
+}
+
+typedef Widget VideoWidgetBuilder(
+    BuildContext context, VideoPlayerController controller);
+
+abstract class PlayerLifeCycle extends StatefulWidget {
+  PlayerLifeCycle(this.dataSource, this.childBuilder);
+
+  final VideoWidgetBuilder childBuilder;
+  final String dataSource;
+}
+
+/// A widget connecting its life cycle to a [VideoPlayerController] using
+/// a data source from the network.
+class NetworkPlayerLifeCycle extends PlayerLifeCycle {
+  NetworkPlayerLifeCycle(String dataSource, VideoWidgetBuilder childBuilder)
+      : super(dataSource, childBuilder);
+
+  @override
+  _NetworkPlayerLifeCycleState createState() => _NetworkPlayerLifeCycleState();
+}
+
+/// A widget connecting its life cycle to a [VideoPlayerController] using
+/// an asset as data source
+class AssetPlayerLifeCycle extends PlayerLifeCycle {
+  AssetPlayerLifeCycle(String dataSource, VideoWidgetBuilder childBuilder)
+      : super(dataSource, childBuilder);
+
+  @override
+  _AssetPlayerLifeCycleState createState() => _AssetPlayerLifeCycleState();
+}
+
+abstract class _PlayerLifeCycleState extends State<PlayerLifeCycle> {
+  VideoPlayerController controller;
+
+  @override
+
+  /// Subclasses should implement [createVideoPlayerController], which is used
+  /// by this method.
+  void initState() {
+    super.initState();
+    controller = createVideoPlayerController();
+    controller.addListener(() {
+      if (controller.value.hasError) {
+        print(controller.value.errorDescription);
+      }
+    });
+    controller.initialize();
+    controller.setLooping(true);
+    controller.play();
+  }
+
+  @override
+  void deactivate() {
+    super.deactivate();
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.childBuilder(context, controller);
+  }
+
+  VideoPlayerController createVideoPlayerController();
+}
+
+class _NetworkPlayerLifeCycleState extends _PlayerLifeCycleState {
+  @override
+  VideoPlayerController createVideoPlayerController() {
+    return VideoPlayerController.network(widget.dataSource);
+  }
+}
+
+class _AssetPlayerLifeCycleState extends _PlayerLifeCycleState {
+  @override
+  VideoPlayerController createVideoPlayerController() {
+    return VideoPlayerController.asset(widget.dataSource);
+  }
+}
+
+/// A filler card to show the video in a list of scrolling contents.
+Widget buildCard(String title) {
+  return Card(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        ListTile(
+          leading: const Icon(Icons.airline_seat_flat_angled),
+          title: Text(title),
+        ),
+        // TODO(jackson): Remove when deprecation is on stable branch
+        // ignore: deprecated_member_use
+        ButtonTheme.bar(
+          child: ButtonBar(
+            children: <Widget>[
+              FlatButton(
+                child: const Text('BUY TICKETS'),
+                onPressed: () {
+                  /* ... */
+                },
+              ),
+              FlatButton(
+                child: const Text('SELL TICKETS'),
+                onPressed: () {
+                  /* ... */
+                },
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class VideoInListOfCards extends StatelessWidget {
+  VideoInListOfCards(this.controller);
+
+  final VideoPlayerController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      children: <Widget>[
+        buildCard("Item a"),
+        buildCard("Item b"),
+        buildCard("Item c"),
+        buildCard("Item d"),
+        buildCard("Item e"),
+        buildCard("Item f"),
+        buildCard("Item g"),
+        Card(
+            child: Column(children: <Widget>[
+          Column(
+            children: <Widget>[
+              const ListTile(
+                leading: Icon(Icons.cake),
+                title: Text("Video video"),
+              ),
+              Stack(
+                  alignment: FractionalOffset.bottomRight +
+                      const FractionalOffset(-0.1, -0.1),
+                  children: <Widget>[
+                    AspectRatioVideo(controller),
+                    Image.asset('assets/flutter-mark-square-64.png'),
+                  ]),
+            ],
+          ),
+        ])),
+        buildCard("Item h"),
+        buildCard("Item i"),
+        buildCard("Item j"),
+        buildCard("Item k"),
+        buildCard("Item l"),
+      ],
+    );
+  }
+}
+
+class AspectRatioVideo extends StatefulWidget {
+  AspectRatioVideo(this.controller);
+
+  final VideoPlayerController controller;
+
+  @override
+  AspectRatioVideoState createState() => AspectRatioVideoState();
+}
+
+class AspectRatioVideoState extends State<AspectRatioVideo> {
+  VideoPlayerController get controller => widget.controller;
+  bool initialized = false;
+
+  VoidCallback listener;
+
+  @override
+  void initState() {
+    super.initState();
+    listener = () {
+      if (!mounted) {
+        return;
+      }
+      if (initialized != controller.value.initialized) {
+        initialized = controller.value.initialized;
+        setState(() {});
+      }
+    };
+    controller.addListener(listener);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (initialized) {
+      return Center(
+        child: AspectRatio(
+          aspectRatio: controller.value.aspectRatio,
+          child: VideoPlayPause(controller),
+        ),
+      );
+    } else {
+      return Container();
+    }
+  }
+}
+
+class App extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        key: const ValueKey<String>('home_page'),
+        appBar: AppBar(
+          title: const Text('Video player example'),
+          actions: <Widget>[
+            IconButton(
+              key: const ValueKey<String>('push_tab'),
+              icon: const Icon(Icons.navigation),
+              onPressed: () {
+                Navigator.push<PlayerVideoAndPopPage>(
+                  context,
+                  MaterialPageRoute<PlayerVideoAndPopPage>(
+                      builder: (BuildContext context) =>
+                          PlayerVideoAndPopPage()),
+                );
+              },
+            )
+          ],
+          bottom: const TabBar(
+            isScrollable: true,
+            tabs: <Widget>[
+              Tab(
+                icon: Icon(Icons.cloud),
+                text: "Remote",
+              ),
+              Tab(icon: Icon(Icons.insert_drive_file), text: "Asset"),
+              Tab(icon: Icon(Icons.list), text: "List example"),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          children: <Widget>[
+            // SingleChildScrollView(
+            //   child: Column(
+            //     children: <Widget>[
+            //       Container(
+            //         padding: const EdgeInsets.only(top: 20.0),
+            //       ),
+            //       const Text('With remote mp4'),
+            //       Container(
+            //         padding: const EdgeInsets.all(20),
+            //         child: NetworkPlayerLifeCycle(
+            //           'https://flutter.github.io/assets-for-api-docs/assets/videos/bee.mp4',
+            //           (BuildContext context,
+            //                   VideoPlayerController controller) =>
+            //               AspectRatioVideo(controller),
+            //         ),
+            //       ),
+            //     ],
+            //   ),
+            // ),
+            SingleChildScrollView(
+              child: Column(
+                children: <Widget>[
+                  Container(
+                    padding: const EdgeInsets.only(top: 20.0),
+                  ),
+                  const Text('With assets mp4'),
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    child: AssetPlayerLifeCycle(
+                        'assets/Butterfly-209.mp4',
+                        (BuildContext context,
+                                VideoPlayerController controller) =>
+                            AspectRatioVideo(controller)),
+                  ),
+                ],
+              ),
+            ),
+            AssetPlayerLifeCycle(
+                'assets/Butterfly-209.mp4',
+                (BuildContext context, VideoPlayerController controller) =>
+                    VideoInListOfCards(controller)),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 void main() {
-  // Desktop platforms are not recognized as valid targets by
-  // Flutter; force a specific target to prevent exceptions.
   debugDefaultTargetPlatformOverride = TargetPlatform.fuchsia;
 
-  // Try to resize and reposition the window to be half the width and height
-  // of its screen, centered horizontally and shifted up from center.
-  WidgetsFlutterBinding.ensureInitialized();
-  if (Platform.isMacOS || Platform.isLinux) {
-    window_size.getWindowInfo().then((window) {
-      if (window.screen != null) {
-        final screenFrame = window.screen.visibleFrame;
-        final width = math.max((screenFrame.width / 2).roundToDouble(), 800.0);
-        final height =
-            math.max((screenFrame.height / 2).roundToDouble(), 600.0);
-        final left = ((screenFrame.width - width) / 2).roundToDouble();
-        final top = ((screenFrame.height - height) / 3).roundToDouble();
-        final frame = Rect.fromLTWH(left, top, width, height);
-        window_size.setWindowFrame(frame);
+  runApp(
+    MaterialApp(
+      home: App(),
+    ),
+  );
+}
 
-        if (Platform.isMacOS) {
-          window_size.setWindowMinSize(Size(800, 600));
-          window_size.setWindowMaxSize(Size(1600, 1200));
-        }
+class PlayerVideoAndPopPage extends StatefulWidget {
+  @override
+  _PlayerVideoAndPopPageState createState() => _PlayerVideoAndPopPageState();
+}
+
+class _PlayerVideoAndPopPageState extends State<PlayerVideoAndPopPage> {
+  VideoPlayerController _videoPlayerController;
+  bool startedPlaying = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _videoPlayerController =
+        VideoPlayerController.asset('assets/Butterfly-209.mp4');
+    _videoPlayerController.addListener(() {
+      if (startedPlaying && !_videoPlayerController.value.isPlaying) {
+        Navigator.pop(context);
       }
     });
   }
 
-  example_plugin.ExamplePlugin.platformVersion.then((versionInfo) {
-    print('Example plugin returned $versionInfo');
-  });
-
-  runApp(new MyApp());
-}
-
-/// Top level widget for the example application.
-class MyApp extends StatefulWidget {
-  /// Constructs a new app with the given [key].
-  const MyApp({Key key}) : super(key: key);
-
   @override
-  _AppState createState() => new _AppState();
-}
-
-class _AppState extends State<MyApp> {
-  _AppState() {
-    if (Platform.isMacOS) {
-      SharedPreferences.getInstance().then((prefs) {
-        if (prefs.containsKey(_prefKeyColor)) {
-          setPrimaryColor(Color(prefs.getInt(_prefKeyColor)));
-        }
-      });
-    }
+  void dispose() {
+    _videoPlayerController.dispose();
+    super.dispose();
   }
 
-  Color _primaryColor = Colors.blue;
-  int _counter = 0;
-
-  static _AppState of(BuildContext context) =>
-      context.ancestorStateOfType(const TypeMatcher<_AppState>());
-
-  /// Sets the primary color of the example app.
-  void setPrimaryColor(Color color) {
-    setState(() {
-      _primaryColor = color;
-    });
-    _saveColor();
-  }
-
-  void _saveColor() async {
-    if (Platform.isMacOS) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(_prefKeyColor, _primaryColor.value);
-    }
-  }
-
-  void incrementCounter() {
-    _setCounter(_counter + 1);
-  }
-
-  void _decrementCounter() {
-    _setCounter(_counter - 1);
-  }
-
-  void _setCounter(int value) {
-    setState(() {
-      _counter = value;
-    });
-  }
-
-  /// Rebuilds the native menu bar based on the current state.
-  void updateMenubar() {
-    // Currently, the menubar plugin is only implemented on macOS and linux.
-    if (!Platform.isMacOS && !Platform.isLinux) {
-      return;
-    }
-    setApplicationMenu([
-      Submenu(label: 'Color', children: [
-        MenuItem(
-            label: 'Reset',
-            enabled: _primaryColor != Colors.blue,
-            shortcut: LogicalKeySet(
-                LogicalKeyboardKey.meta, LogicalKeyboardKey.backspace),
-            onClicked: () {
-              setPrimaryColor(Colors.blue);
-            }),
-        MenuDivider(),
-        Submenu(label: 'Presets', children: [
-          MenuItem(
-              label: 'Red',
-              enabled: _primaryColor != Colors.red,
-              shortcut: LogicalKeySet(LogicalKeyboardKey.meta,
-                  LogicalKeyboardKey.shift, LogicalKeyboardKey.keyR),
-              onClicked: () {
-                setPrimaryColor(Colors.red);
-              }),
-          MenuItem(
-              label: 'Green',
-              enabled: _primaryColor != Colors.green,
-              shortcut: LogicalKeySet(LogicalKeyboardKey.meta,
-                  LogicalKeyboardKey.alt, LogicalKeyboardKey.keyG),
-              onClicked: () {
-                setPrimaryColor(Colors.green);
-              }),
-          MenuItem(
-              label: 'Purple',
-              enabled: _primaryColor != Colors.deepPurple,
-              shortcut: LogicalKeySet(LogicalKeyboardKey.meta,
-                  LogicalKeyboardKey.control, LogicalKeyboardKey.keyP),
-              onClicked: () {
-                setPrimaryColor(Colors.deepPurple);
-              }),
-        ])
-      ]),
-      Submenu(label: 'Counter', children: [
-        MenuItem(
-            label: 'Reset',
-            enabled: _counter != 0,
-            shortcut: LogicalKeySet(
-                LogicalKeyboardKey.meta, LogicalKeyboardKey.digit0),
-            onClicked: () {
-              _setCounter(0);
-            }),
-        MenuDivider(),
-        MenuItem(
-            label: 'Increment',
-            shortcut: LogicalKeySet(LogicalKeyboardKey.f2),
-            onClicked: incrementCounter),
-        MenuItem(
-            label: 'Decrement',
-            enabled: _counter > 0,
-            shortcut: LogicalKeySet(LogicalKeyboardKey.f1),
-            onClicked: _decrementCounter),
-      ]),
-    ]);
+  Future<bool> started() async {
+    await _videoPlayerController.initialize();
+    await _videoPlayerController.play();
+    startedPlaying = true;
+    return true;
   }
 
   @override
   Widget build(BuildContext context) {
-    // Any time the state changes, the menu needs to be rebuilt.
-    updateMenubar();
-
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        primaryColor: _primaryColor,
-        accentColor: _primaryColor,
-        // Specify a font to reduce potential issues with the
-        // example behaving differently on different platforms.
-        fontFamily: 'Roboto',
-      ),
-      darkTheme: ThemeData.dark(),
-      home: _MyHomePage(title: 'Flutter Demo Home Page', counter: _counter),
-    );
-  }
-}
-
-class _MyHomePage extends StatelessWidget {
-  const _MyHomePage({this.title, this.counter = 0});
-
-  final String title;
-  final int counter;
-
-  void _changePrimaryThemeColor(BuildContext context) {
-    final colorPanel = ColorPanel.instance;
-    if (!colorPanel.showing) {
-      colorPanel.show((color) {
-        _AppState.of(context).setPrimaryColor(color);
-        // Setting the primary color to a non-opaque color raises an exception.
-      }, showAlpha: false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(title),
-        actions: <Widget>[
-          new IconButton(
-            icon: new Icon(Icons.color_lens),
-            tooltip: 'Change theme color',
-            onPressed: () {
-              _changePrimaryThemeColor(context);
-            },
-          ),
-        ],
-      ),
-      body: LayoutBuilder(
-        builder: (context, viewportConstraints) {
-          return SingleChildScrollView(
-            child: ConstrainedBox(
-              constraints:
-                  BoxConstraints(minHeight: viewportConstraints.maxHeight),
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: <Widget>[
-                    const Text(
-                      'You have pushed the button this many times:',
-                    ),
-                    new Text(
-                      '$counter',
-                      style: Theme.of(context).textTheme.display1,
-                    ),
-                    TextInputTestWidget(),
-                    FileChooserTestWidget(),
-                    URLLauncherTestWidget(),
-                    new RaisedButton(
-                      child: new Text('Test raw keyboard events'),
-                      onPressed: () {
-                        Navigator.of(context).push(new MaterialPageRoute(
-                            builder: (context) => KeyboardTestPage()));
-                      },
-                    ),
-                    Container(
-                      width: 380.0,
-                      height: 100.0,
-                      decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey, width: 1.0)),
-                      child: Scrollbar(
-                        child: ListView.builder(
-                          padding: EdgeInsets.all(8.0),
-                          itemExtent: 20.0,
-                          itemCount: 50,
-                          itemBuilder: (context, index) {
-                            return Text('entry $index');
-                          },
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _AppState.of(context).incrementCounter,
-        tooltip: 'Increment',
-        child: Icon(Icons.add),
-      ),
-    );
-  }
-}
-
-/// A widget containing controls to test the file chooser plugin.
-class FileChooserTestWidget extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return ButtonBar(
-      alignment: MainAxisAlignment.center,
-      children: <Widget>[
-        new FlatButton(
-          child: const Text('SAVE'),
-          onPressed: () {
-            file_chooser
-                .showSavePanel(suggestedFileName: 'save_test.txt')
-                .then((result) {
-              Scaffold.of(context).showSnackBar(SnackBar(
-                content: Text(_resultTextForFileChooserOperation(
-                    _FileChooserType.save, result)),
-              ));
-            });
-          },
-        ),
-        new FlatButton(
-          child: const Text('OPEN'),
-          onPressed: () async {
-            String initialDirectory;
-            if (Platform.isMacOS) {
-              initialDirectory =
-                  (await getApplicationDocumentsDirectory()).path;
+    return Material(
+      elevation: 0,
+      child: Center(
+        child: FutureBuilder<bool>(
+          future: started(),
+          builder: (BuildContext context, AsyncSnapshot<bool> snapshot) {
+            if (snapshot.data == true) {
+              return AspectRatio(
+                  aspectRatio: _videoPlayerController.value.aspectRatio,
+                  child: VideoPlayer(_videoPlayerController));
+            } else {
+              return const Text('waiting for video to load');
             }
-            file_chooser
-                .showOpenPanel(
-                    allowsMultipleSelection: true,
-                    initialDirectory: initialDirectory)
-                .then(
-              (result) {
-                Scaffold.of(context).showSnackBar(SnackBar(
-                    content: Text(_resultTextForFileChooserOperation(
-                        _FileChooserType.open, result))));
-              },
-            );
           },
         ),
-      ],
-    );
-  }
-}
-
-/// A widget containing controls to test the url launcher plugin.
-class URLLauncherTestWidget extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return ButtonBar(
-      alignment: MainAxisAlignment.center,
-      children: <Widget>[
-        new FlatButton(
-          child: const Text('OPEN ON GITHUB'),
-          onPressed: () {
-            url_launcher
-                .launch('https://github.com/google/flutter-desktop-embedding');
-          },
-        ),
-      ],
-    );
-  }
-}
-
-/// A widget containing controls to test text input.
-class TextInputTestWidget extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: const <Widget>[
-        SampleTextField(),
-        SampleTextField(),
-      ],
-    );
-  }
-}
-
-/// A text field with styling suitable for including in a TextInputTestWidget.
-class SampleTextField extends StatelessWidget {
-  /// Creates a new sample text field.
-  const SampleTextField();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 200.0,
-      padding: const EdgeInsets.all(10.0),
-      child: TextField(
-        decoration: InputDecoration(border: OutlineInputBorder()),
       ),
     );
   }
-}
-
-/// Possible file chooser operation types.
-enum _FileChooserType { save, open }
-
-/// Returns display text reflecting the result of a file chooser operation.
-String _resultTextForFileChooserOperation(
-    _FileChooserType type, file_chooser.FileChooserResult result) {
-  if (result.canceled) {
-    return '${type == _FileChooserType.open ? 'Open' : 'Save'} cancelled';
-  }
-  final typeString = type == _FileChooserType.open ? 'opening' : 'saving';
-  return 'Selected for $typeString: ${result.paths.join('\n')}';
 }

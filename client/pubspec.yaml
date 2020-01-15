@@ -19,7 +19,7 @@ dependencies:
   # path from your application to the flutter_desktop_embedding
   # checkout.
   video_player:
-    path: ../../../plugins/packages/video_player/video_player
+    path: ../../../flutter-desktop-embedding/plugins/video_player
 
 dev_dependencies:
   flutter_test:
@@ -27,3 +27,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+   - assets/Butterfly-209.mp4
+
